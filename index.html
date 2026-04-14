@@ -1043,7 +1043,7 @@ function esc(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/<
 function pad(n){return n<10?'0'+n:''+n;}
 function getPts(pos){var p=parseInt(pos);return(p>=1&&p<=8)?PTS[p-1]:0;}
 function isPlayerPaid(sqId,i){return!!(payments[sqId+'_'+i]);}
-function setPlayerPaid(sqId,i,val){if(val)payments[sqId+'_'+i]=true;else delete payments[sqId+'_'+i];saveDB();}
+function setPlayerPaid(sqId,i,val){if(val)payments[sqId+'_'+i]=true;else delete payments[sqId+'_'+i];saveDB();if(window.setPaymentFirestore){window.setPaymentFirestore(sqId,i,val).catch(function(err){console.error('Firebase payment sync failed:',err);});}}
 function getSqPaidCount(sq){var c=0;for(var i=0;i<sq.members.length;i++){if(isPlayerPaid(sq.id,i))c++;}return c;}
 function getTotalPaid(){var c=0;squads.forEach(function(sq){for(var i=0;i<sq.members.length;i++){if(isPlayerPaid(sq.id,i))c++;}});return c;}
 function getTeamTotals(sqId){
@@ -1222,7 +1222,7 @@ function goPage(id){
   if(id==='pgResults')renderResults();
   if(id==='pgList')renderSquadList();
   if(id==='pgPay')renderPaymentPage();
-  if(id==='pgAdmin'){renderAdminMatches();renderAdminPayment();renderAdminResults();renderAdminSquads();updateAdminTot();}
+  if(id==='pgAdmin'){if(window.ensureFirestoreResults)window.ensureFirestoreResults().catch(function(err){console.error('Firestore results sync failed:',err);});if(window.ensureFirestorePayments)window.ensureFirestorePayments().catch(function(err){console.error('Firestore payments sync failed:',err);});renderAdminMatches();renderAdminPayment();renderAdminResults();renderAdminSquads();updateAdminTot();}
 }
 function goBack(){curPage=prevPage;showPage(prevPage);}
 function goHome(){prevPage=curPage;curPage='pgHome';showPage('pgHome');updateStats();}
@@ -1888,6 +1888,7 @@ function startSaveProf(){
 async function renderSquadList(){
   var wrap=document.getElementById('LC');if(!wrap)return;
   wrap.innerHTML='<div style="text-align:center;padding:40px 18px;color:#8a8070;">Loading players...</div>';
+  if(window.ensureFirestorePayments) await window.ensureFirestorePayments();
   await window.loadFirestoreSquads();
   var bn=lang==='bn';
   var q=(document.getElementById('SI')?document.getElementById('SI').value:'').toLowerCase().trim();
@@ -1954,8 +1955,9 @@ function toggleSqCard(id){var el=document.getElementById(id);if(!el)return;el.cl
 // ════════════════════════════
 // PAYMENT PAGE
 // ════════════════════════════
-function renderPaymentPage(){
+async function renderPaymentPage(){
   var wrap=document.getElementById('payContent');if(!wrap)return;
+  if(window.ensureFirestorePayments) await window.ensureFirestorePayments();
   var bn=lang==='bn';
   var total=squads.reduce(function(a,s){return a+s.members.length;},0);
   var paid=getTotalPaid();
@@ -2022,6 +2024,7 @@ function saveMatch(id){
 // ════════════════════════════
 function renderAdminPayment(){
   var wrap=document.getElementById('adminPayment');if(!wrap)return;
+  if(window.ensureFirestorePayments && !window._paymentsSyncedAt && !window._paymentsSyncLoading){window._paymentsSyncLoading=true;window.ensureFirestorePayments().then(function(){window._paymentsSyncLoading=false;renderAdminPayment();}).catch(function(){window._paymentsSyncLoading=false;});}
   if(!squads.length){wrap.innerHTML='<div style="padding:10px;font-family:Orbitron,monospace;font-size:8px;color:var(--mt);letter-spacing:2px;">NO SQUADS YET</div>';return;}
   var html='';
   squads.forEach(function(sq){
@@ -2038,7 +2041,7 @@ function renderAdminPayment(){
   });
   wrap.innerHTML=html;
 }
-function togglePay(sqId,idx,val){setPlayerPaid(sqId,idx,val);renderAdminPayment();updateStats();updateTicker();renderPaymentPage();renderSquadList();showToast(val?'✅ Marked as PAID':'✅ Marked as UNPAID');}
+function togglePay(sqId,idx,val){setPlayerPaid(sqId,idx,val);if(window._paymentsSyncedAt){window._paymentsSyncedAt=Date.now();}renderAdminPayment();updateStats();updateTicker();renderPaymentPage();renderSquadList();showToast(val?'✅ Marked as PAID':'✅ Marked as UNPAID');}
 
 // ════════════════════════════
 // ADMIN — RESULTS
@@ -2060,6 +2063,8 @@ function renderAdminResults(){
 }
 function delResult(rid){
   showConfirm('⚠️','DELETE RESULT','Delete this result? Cannot be undone.',true,function(){
+    var res=results.find(function(r){return r.id===rid;});
+    if(window.deleteResultFirestore){window.deleteResultFirestore(rid,(res&&res.docId)||null).catch(function(err){console.error('Firebase result delete failed:',err);});}
     results=results.filter(function(r){return r.id!==rid;});saveDB();renderAdminResults();renderResults();showToast('✅ Result deleted');
   });
 }
@@ -2093,6 +2098,8 @@ function renderAdminSquads(){
 function toggleASq(id){var el=document.getElementById(id);if(!el)return;el.style.display=el.style.display==='none'?'block':'none';}
 function delSq(id){
   showConfirm('⚠️','DELETE SQUAD','Delete this squad and all their results? Cannot be undone.',true,function(){
+    var sq=squads.find(function(s){return s.id===id;});
+    if(window.deleteSquadFirestore){window.deleteSquadFirestore(id,(sq&&sq.code)||null).catch(function(err){console.error('Firebase squad delete failed:',err);});}
     squads=squads.filter(function(s){return s.id!==id;});
     results=results.filter(function(r){return r.sqId!==id;});
     Object.keys(payments).forEach(function(k){if(k.startsWith(id+'_'))delete payments[k];});
@@ -2118,6 +2125,7 @@ function startReset(type){
   showConfirm('⚠️','CONFIRM RESET',msgs[type]||'Confirm reset?',true,function(){executeReset(type);});
 }
 function executeReset(type){
+  if(window.performFirebaseReset){window.performFirebaseReset(type).catch(function(err){console.error('Firebase reset failed:',err);});}
   if(type==='all'){
     squads=[];results=[];payments={};
     matches=[
@@ -2219,7 +2227,7 @@ function spawnFire(container, count) {
 
 <script type="module">
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
-  import { getFirestore, collection, addDoc, getDocs } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
+  import { getFirestore, collection, addDoc, getDocs, deleteDoc, query, where, doc } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
 
   const firebaseConfig = {
     apiKey: "AIzaSyC60iFp5MwS3qOoM6Q2QPTZvpFES_y0Ey",
@@ -2246,6 +2254,7 @@ function spawnFire(container, count) {
       date: squad.date,
       ts: squad.ts
     });
+    squad.docId = docRef.id;
     return docRef.id;
   };
 
@@ -2256,6 +2265,7 @@ function spawnFire(container, count) {
       querySnapshot.forEach(function(doc) {
         var data = doc.data();
         remote.push({
+          docId: doc.id,
           id: data.id || doc.id,
           code: data.code || data.accessCode || '',
           captain: data.captain || '',
@@ -2282,6 +2292,7 @@ function spawnFire(container, count) {
       querySnapshot.forEach(function(doc) {
         var data = doc.data();
         remote.push({
+          docId: doc.id,
           id: data.id || doc.id,
           sqId: data.sqId || '',
           sqCode: data.sqCode || '',
@@ -2320,7 +2331,141 @@ function spawnFire(container, count) {
       screenshot: result.screenshot,
       submittedAt: result.submittedAt
     });
+    result.docId = docRef.id;
     return docRef.id;
+  };
+
+  window.loadFirestorePayments = async function() {
+    try {
+      const querySnapshot = await getDocs(collection(db, 'payments'));
+      var remote = {};
+      querySnapshot.forEach(function(docSnap) {
+        var data = docSnap.data();
+        if (data && data.sqId != null && data.playerIndex != null) {
+          remote[data.sqId+'_'+data.playerIndex] = docSnap.id;
+          if (data.paid) payments[data.sqId+'_'+data.playerIndex] = true;
+        }
+      });
+      window._paymentsSyncedAt = Date.now();
+      window._firebasePaymentDocs = remote;
+      return remote;
+    } catch (err) {
+      console.error('Firestore load payments failed:', err);
+      try { showToast('⚠️ Failed loading payments from Firebase'); } catch (ignored) {}
+      return {};
+    }
+  };
+
+  window.ensureFirestorePayments = async function() {
+    if (window._paymentsSyncedAt && Date.now() - window._paymentsSyncedAt < 5000) return;
+    await window.loadFirestorePayments();
+  };
+
+  window.setPaymentFirestore = async function(sqId, idx, paid) {
+    const paymentsRef = collection(db, 'payments');
+    const q = query(paymentsRef, where('sqId', '==', sqId), where('playerIndex', '==', idx));
+    const snapshot = await getDocs(q);
+    var deletes = [];
+    snapshot.forEach(function(docSnap) {
+      deletes.push(deleteDoc(doc(db, 'payments', docSnap.id)));
+    });
+    await Promise.all(deletes);
+    if (paid) {
+      const docRef = await addDoc(paymentsRef, {sqId:sqId, playerIndex:idx, paid:true, ts:Date.now()});
+      if (!window._firebasePaymentDocs) window._firebasePaymentDocs = {};
+      window._firebasePaymentDocs[sqId+'_'+idx] = docRef.id;
+      return docRef.id;
+    }
+    return null;
+  };
+
+  window.deleteResultFirestore = async function(resultId, docId) {
+    if (docId) {
+      await deleteDoc(doc(db, 'results', docId));
+      return;
+    }
+    const q = query(collection(db, 'results'), where('id', '==', resultId));
+    const snapshot = await getDocs(q);
+    var deletes = [];
+    snapshot.forEach(function(docSnap) { deletes.push(deleteDoc(doc(db, 'results', docSnap.id))); });
+    await Promise.all(deletes);
+  };
+
+  window.deletePaymentsForSquad = async function(sqId) {
+    const q = query(collection(db, 'payments'), where('sqId', '==', sqId));
+    const snapshot = await getDocs(q);
+    var deletes = [];
+    snapshot.forEach(function(docSnap) { deletes.push(deleteDoc(doc(db, 'payments', docSnap.id))); });
+    await Promise.all(deletes);
+  };
+
+  window.deleteResultsForSquad = async function(sqId) {
+    const q = query(collection(db, 'results'), where('sqId', '==', sqId));
+    const snapshot = await getDocs(q);
+    var deletes = [];
+    snapshot.forEach(function(docSnap) { deletes.push(deleteDoc(doc(db, 'results', docSnap.id))); });
+    await Promise.all(deletes);
+  };
+
+  window.deleteSquadFirestore = async function(sqId, code) {
+    var regRef = collection(db, 'registrations');
+    var q = query(regRef, where('id', '==', sqId));
+    var snapshot = await getDocs(q);
+    if (snapshot.empty && code) {
+      q = query(regRef, where('code', '==', code));
+      snapshot = await getDocs(q);
+    }
+    var deletes = [];
+    snapshot.forEach(function(docSnap) { deletes.push(deleteDoc(doc(db, 'registrations', docSnap.id))); });
+    await Promise.all(deletes);
+    await window.deleteResultsForSquad(sqId);
+    await window.deletePaymentsForSquad(sqId);
+  };
+
+  window.deleteResultsForMatch = async function(matchNum) {
+    const q = query(collection(db, 'results'), where('matchNum', '==', matchNum));
+    const snapshot = await getDocs(q);
+    var deletes = [];
+    snapshot.forEach(function(docSnap) { deletes.push(deleteDoc(doc(db, 'results', docSnap.id))); });
+    await Promise.all(deletes);
+  };
+
+  window.deleteAllResults = async function() {
+    const querySnapshot = await getDocs(collection(db, 'results'));
+    var deletes = [];
+    querySnapshot.forEach(function(docSnap) { deletes.push(deleteDoc(doc(db, 'results', docSnap.id))); });
+    await Promise.all(deletes);
+  };
+
+  window.deleteAllSquads = async function() {
+    const querySnapshot = await getDocs(collection(db, 'registrations'));
+    var deletes = [];
+    querySnapshot.forEach(function(docSnap) { deletes.push(deleteDoc(doc(db, 'registrations', docSnap.id))); });
+    await Promise.all(deletes);
+  };
+
+  window.deleteAllPayments = async function() {
+    const querySnapshot = await getDocs(collection(db, 'payments'));
+    var deletes = [];
+    querySnapshot.forEach(function(docSnap) { deletes.push(deleteDoc(doc(db, 'payments', docSnap.id))); });
+    await Promise.all(deletes);
+  };
+
+  window.performFirebaseReset = async function(type) {
+    if (type === 'all') {
+      await window.deleteAllResults();
+      await window.deleteAllPayments();
+      await window.deleteAllSquads();
+    } else if (type === 'm1' || type === 'm2' || type === 'm3') {
+      var mn = parseInt(type[1]);
+      await window.deleteResultsForMatch(mn);
+    } else if (type === 'payments') {
+      await window.deleteAllPayments();
+    } else if (type === 'squads') {
+      await window.deleteAllResults();
+      await window.deleteAllPayments();
+      await window.deleteAllSquads();
+    }
   };
 </script>
 </body>
