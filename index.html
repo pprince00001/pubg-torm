@@ -1873,8 +1873,10 @@ function startSaveProf(){
 // ════════════════════════════
 // SQUAD LIST
 // ════════════════════════════
-function renderSquadList(){
+async function renderSquadList(){
   var wrap=document.getElementById('LC');if(!wrap)return;
+  wrap.innerHTML='<div style="text-align:center;padding:40px 18px;color:#8a8070;">Loading players...</div>';
+  await window.loadFirestoreSquads();
   var bn=lang==='bn';
   var q=(document.getElementById('SI')?document.getElementById('SI').value:'').toLowerCase().trim();
   var lbl=document.getElementById('sqLbl');
@@ -2205,7 +2207,7 @@ function spawnFire(container, count) {
 
 <script type="module">
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
-  import { getFirestore, collection, addDoc } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
+  import { getFirestore, collection, addDoc, getDocs } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
 
   const firebaseConfig = {
     apiKey: "AIzaSyC60iFp5MwS3qOoM6Q2QPTZvpFES_y0Ey",
@@ -2231,6 +2233,32 @@ function spawnFire(container, count) {
       ts: squad.ts
     });
     return docRef.id;
+  };
+
+  window.loadFirestoreSquads = async function() {
+    try {
+      const querySnapshot = await getDocs(collection(db, 'registrations'));
+      var remote = [];
+      querySnapshot.forEach(function(doc) {
+        var data = doc.data();
+        remote.push({
+          id: data.id || doc.id,
+          code: data.code || '',
+          captain: data.captain || '',
+          teamName: data.teamName || '',
+          phone: data.phone || '',
+          members: Array.isArray(data.members) ? data.members : [],
+          date: data.date || '',
+          ts: data.ts || 0
+        });
+      });
+      squads = remote;
+      return squads;
+    } catch (err) {
+      console.error('Firestore load failed:', err);
+      try { showToast('⚠️ Failed loading players from Firebase'); } catch (ignored) {}
+      return squads;
+    }
   };
 </script>
 </body>
