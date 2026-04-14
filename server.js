@@ -29,7 +29,7 @@ db.run(`CREATE TABLE IF NOT EXISTS registrations (
 
 // Routes
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'main.html'));
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 // Optional: keep the old viewer route until removed manually
