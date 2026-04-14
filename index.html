@@ -847,7 +847,7 @@ button,input,select,textarea{font-family:inherit;font-size:inherit;}
     <div><div class="ptt" style="color:#f07060;">👑 ADMIN PANEL</div><div class="pst" id="aTot">—</div></div>
     <div style="margin-left:auto;font-family:Orbitron,monospace;font-size:6px;color:rgba(220,47,2,.4);">RESTRICTED</div>
   </div>
-  <div class="admin-note">⚠️ FULL ADMIN ACCESS · Password: Bangladesh1% · All data editable here</div>
+  <div class="admin-note">⚠️ FULL ADMIN ACCESS · All data editable here</div>
   <div class="pscroll">
     <div class="admin-sec"><div class="admin-sec-tt a-gold">⚔ MATCH SETUP</div><div id="adminMatches"></div></div>
     <div class="am-div"></div>
@@ -1247,12 +1247,34 @@ function setLang(l){
 }
 
 // ════════════════════════════
+// ════════════════════════════
 // LOGIN
 // ════════════════════════════
+async function hashPassword(password) {
+  const base64 = btoa(password);
+  const encoder = new TextEncoder();
+  const data = encoder.encode(base64);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashBase64 = btoa(String.fromCharCode(...hashArray));
+  return hashBase64;
+}
+
 function doLogin(){
   var code=(document.getElementById('LI').value||'').trim();
-  if(code==='Bangladesh1%'){var li=document.getElementById('LI');if(li)li.value='';prevPage=curPage;curPage='pgAdmin';showPage('pgAdmin');renderAdminMatches();renderAdminPayment();renderAdminResults();renderAdminSquads();updateAdminTot();return;}
-  if(!/^\d{4}$/.test(code)){showToast('⚠️ Enter 4-digit access code');return;}
+  if(!/^\d{4}$/.test(code)){
+    // Assume admin login attempt
+    hashPassword(code).then(hash => {
+      if(hash === 'n2rqA/+3HyLQJxW/oAaHO9nkpsZmknAHdsFZYhqaZAo='){
+        var li=document.getElementById('LI');if(li)li.value='';prevPage=curPage;curPage='pgAdmin';showPage('pgAdmin');renderAdminMatches();renderAdminPayment();renderAdminResults();renderAdminSquads();updateAdminTot();
+      } else {
+        showToast('❌ Invalid admin password');playSound('error');
+      }
+    }).catch(err => {
+      showToast('❌ Hash error');console.error(err);
+    });
+    return;
+  }
   var sq=findSq(code);
   if(!sq){showToast('❌ Code not found');playSound('error');return;}
   loggedCode=code;var li2=document.getElementById('LI');if(li2)li2.value='';renderProfile(sq);prevPage=curPage;curPage='pgProf';showPage('pgProf');
