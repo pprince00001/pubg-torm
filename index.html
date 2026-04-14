@@ -1047,12 +1047,12 @@ function setPlayerPaid(sqId,i,val){if(val)payments[sqId+'_'+i]=true;else delete 
 function getSqPaidCount(sq){var c=0;for(var i=0;i<sq.members.length;i++){if(isPlayerPaid(sq.id,i))c++;}return c;}
 function getTotalPaid(){var c=0;squads.forEach(function(sq){for(var i=0;i<sq.members.length;i++){if(isPlayerPaid(sq.id,i))c++;}});return c;}
 function getTeamTotals(sqId){
-  var rs=results.filter(function(r){return r.sqId===sqId;});
+  var rs=results.filter(function(r){return r.sqId===sqId||r.sqCode===sqId;});
   var pts=0,kills=0;
   rs.forEach(function(r){var k=r.kills.reduce(function(a,x){return a+parseInt(x.kills||0);},0);pts+=getPts(r.position)+k;kills+=k;});
   return{pts:pts,kills:kills,mc:rs.length};
 }
-function getResForMatch(sqId,mn){return results.find(function(r){return r.sqId===sqId&&r.matchNum===mn;})||null;}
+function getResForMatch(sqId,mn){return results.find(function(r){return (r.sqId===sqId||r.sqCode===sqId)&&r.matchNum===mn;})||null;}
 function findSq(code){return squads.find(function(s){return s.code===code;})||null;}
 function fmtDate(s){
   if(!s)return'—';
@@ -1441,8 +1441,10 @@ function switchRT(tab){
   renderResults();
 }
 
-function renderResults(){
+async function renderResults(){
   var wrap=document.getElementById('resContent');if(!wrap)return;
+  await window.loadFirestoreSquads();
+  await window.ensureFirestoreResults();
   if(curRT==='sub'){renderSubmitForm(wrap);return;}
   renderLeaderboard(wrap,curRT);
 }
@@ -1455,9 +1457,9 @@ function renderLeaderboard(wrap,matchNum){
   var lb=squads.map(function(sq){
     var res=null,pts=0,kills=0,posPts=0,pos=0,mc=0;
     if(isFinal){
-      var t=getTeamTotals(sq.id);pts=t.pts;kills=t.kills;mc=t.mc;
+      var t=getTeamTotals(sq.code);pts=t.pts;kills=t.kills;mc=t.mc;
     } else {
-      res=getResForMatch(sq.id,matchNum);
+      res=getResForMatch(sq.code,matchNum);
       if(res){
         kills=res.kills.reduce(function(a,x){return a+parseInt(x.kills||0);},0);
         posPts=getPts(res.position);pts=posPts+kills;pos=res.position;mc=1;
@@ -1558,7 +1560,7 @@ function renderLeaderboard(wrap,matchNum){
 
     // ── For Final: per-match breakdown ──
     if(isFinal){
-      var sqRes=results.filter(function(r){return r.sqId===sq.id;}).sort(function(a,b){return a.matchNum-b.matchNum;});
+      var sqRes=results.filter(function(r){return r.sqId===sq.id||r.sqCode===sq.code;}).sort(function(a,b){return a.matchNum-b.matchNum;});
       if(sqRes.length){
         html+='<div style="padding:9px 12px;border-top:1px solid rgba(240,165,0,.06);background:rgba(0,0,0,.2);">';
         html+='<div style="font-family:Orbitron,monospace;font-size:6.5px;letter-spacing:2px;color:#3a3530;margin-bottom:7px;">'+(bn?'প্রতিটি ম্যাচের বিস্তারিত:':'MATCH BY MATCH BREAKDOWN:')+'</div>';
@@ -1626,7 +1628,7 @@ function renderSubmitForm(wrap){
 
   html+='<div class="pcard"><div class="pcard-h"><span style="font-size:17px">⚔</span><span class="rbdg rb-p">'+(bn?'ম্যাচ নির্বাচন':'SELECT MATCH')+'</span></div><div class="pcard-b"><div class="mtabs-sm">';
   [1,2,3].forEach(function(i){
-    var done=results.some(function(r){return r.sqId===sq.id&&r.matchNum===i;});
+    var done=results.some(function(r){return (r.sqId===sq.id||r.sqCode===sq.code)&&r.matchNum===i;});
     html+='<div class="mtb'+(done?' done-m':'')+(subMatch===i?' on':'')+'" onclick="subMatch='+i+';renderResults()">';
     html+='<div class="mtb-ic">'+(done?'✅':'⚔')+'</div>';
     html+='<div class="mtb-lbl">'+(bn?'ম্যাচ ':'MATCH ')+i+(done?' ✓':'')+'</div></div>';
@@ -1637,7 +1639,7 @@ function renderSubmitForm(wrap){
 
   if(!subMatch){wrap.innerHTML=html+'</div>';return;}
 
-  var existing=results.find(function(r){return r.sqId===sq.id&&r.matchNum===subMatch;});
+  var existing=results.find(function(r){return (r.sqId===sq.id||r.sqCode===sq.code)&&r.matchNum===subMatch;});
   if(existing){
     var ek=existing.kills.reduce(function(a,x){return a+parseInt(x.kills||0);},0);
     html+='<div class="pcard"><div class="pcard-h"><span style="font-size:17px">✅</span><span class="rbdg rb-g">'+(bn?'ইতিমধ্যে জমা':'ALREADY SUBMITTED')+'</span></div><div class="pcard-b">';
@@ -1697,14 +1699,24 @@ function doSubmit(){
   if(!subMatch){showToast('⚠️ Select a match');return;}
   var posEl=document.getElementById('subPos');var pos=posEl?posEl.value:'';
   if(!pos){showToast('⚠️ Select your final position');return;}
-  if(results.find(function(r){return r.sqId===sq.id&&r.matchNum===subMatch;})){showToast('⚠️ Match '+subMatch+' already submitted!');return;}
+  if(results.find(function(r){return (r.sqId===sq.id||r.sqCode===sq.code)&&r.matchNum===subMatch;})){showToast('⚠️ Match '+subMatch+' already submitted!');return;}
   var kills=[];
   for(var j=0;j<sq.members.length;j++){var kEl=document.getElementById('kill_'+j);kills.push({name:sq.members[j].name,kills:parseInt(kEl?kEl.value:0)||0});}
   var kt=kills.reduce(function(a,k){return a+k.kills;},0);
   var pp=getPts(parseInt(pos));
   var totalPts=pp+kt;
   showConfirm('📸','CONFIRM SUBMIT','Submit Match '+subMatch+': Position '+pos+', '+kt+' kills = '+totalPts+' points. This cannot be changed!',false,function(){
-    results.push({id:'r'+Date.now(),sqId:sq.id,sqCode:sq.code,teamName:sq.teamName||sq.captain,matchNum:subMatch,position:parseInt(pos),kills,screenshot:subImg||null,submittedAt:new Date().toISOString()});
+    var result={id:'r'+Date.now(),sqId:sq.id,sqCode:sq.code,teamName:sq.teamName||sq.captain,matchNum:subMatch,position:parseInt(pos),kills,killsTotal:kt,screenshot:subImg||null,submittedAt:new Date().toISOString()};
+    results.push(result);
+    if(window.registerResultFirestore){
+      window.registerResultFirestore(result).then(function(docId){
+        console.log('Firebase result saved:', docId);
+        showToast('✅ Match '+subMatch+' submitted to Firebase!');
+      }).catch(function(err){
+        console.error('Firestore result failed:',err);
+        showToast('⚠️ Firebase submit failed. Check console.');
+      });
+    }
     saveDB();
     showToast('✅ Match '+subMatch+' submitted! '+totalPts+' pts earned!');
     subMatch=0;subImg=null;updateTicker();updateStats();
@@ -2224,6 +2236,8 @@ function spawnFire(container, count) {
 
   window.registerSquadFirestore = async function(squad) {
     const docRef = await addDoc(collection(db, 'registrations'), {
+      id: squad.id,
+      accessCode: squad.code,
       code: squad.code,
       captain: squad.captain,
       teamName: squad.teamName,
@@ -2243,7 +2257,7 @@ function spawnFire(container, count) {
         var data = doc.data();
         remote.push({
           id: data.id || doc.id,
-          code: data.code || '',
+          code: data.code || data.accessCode || '',
           captain: data.captain || '',
           teamName: data.teamName || '',
           phone: data.phone || '',
@@ -2259,6 +2273,54 @@ function spawnFire(container, count) {
       try { showToast('⚠️ Failed loading players from Firebase'); } catch (ignored) {}
       return squads;
     }
+  };
+
+  window.loadFirestoreResults = async function() {
+    try {
+      const querySnapshot = await getDocs(collection(db, 'results'));
+      var remote = [];
+      querySnapshot.forEach(function(doc) {
+        var data = doc.data();
+        remote.push({
+          id: data.id || doc.id,
+          sqId: data.sqId || '',
+          sqCode: data.sqCode || '',
+          teamName: data.teamName || '',
+          matchNum: data.matchNum || 0,
+          position: data.position || 0,
+          kills: Array.isArray(data.kills) ? data.kills : [],
+          screenshot: data.screenshot || null,
+          submittedAt: data.submittedAt || ''
+        });
+      });
+      results = remote;
+      window._resultsSyncedAt = Date.now();
+      return results;
+    } catch (err) {
+      console.error('Firestore load results failed:', err);
+      try { showToast('⚠️ Failed loading results from Firebase'); } catch (ignored) {}
+      return results;
+    }
+  };
+
+  window.ensureFirestoreResults = async function() {
+    if(window._resultsSyncedAt && Date.now() - window._resultsSyncedAt < 5000) return;
+    await window.loadFirestoreResults();
+  };
+
+  window.registerResultFirestore = async function(result) {
+    const docRef = await addDoc(collection(db, 'results'), {
+      id: result.id,
+      sqId: result.sqId,
+      sqCode: result.sqCode,
+      teamName: result.teamName,
+      matchNum: result.matchNum,
+      position: result.position,
+      kills: result.kills,
+      screenshot: result.screenshot,
+      submittedAt: result.submittedAt
+    });
+    return docRef.id;
   };
 </script>
 </body>
