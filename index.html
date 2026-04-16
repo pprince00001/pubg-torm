@@ -897,9 +897,9 @@ function VI(el){var src=el.src||el.getAttribute('data-src')||'';if(src)viewImg(s
 var DB='pubg_bd_v1';
 var squads=[],results=[],payments={},curRT=1,subMatch=0,subImg=null,subSqCode='',loggedCode=null,curPage='pgHome',prevPage='pgHome',lang='en',pending=[],pc=0,srvSel={},pendingCb=null,musicOn=false;
 var matches=[
-  {id:1,name:'MATCH 1',map:'',opponent:'',server:'',date:'',time:'',status:'upcoming',roomId:'',roomPass:''},
-  {id:2,name:'MATCH 2',map:'',opponent:'',server:'',date:'',time:'',status:'upcoming',roomId:'',roomPass:''},
-  {id:3,name:'MATCH 3',map:'',opponent:'',server:'',date:'',time:'',status:'upcoming',roomId:'',roomPass:''}
+  {id:1,name:'MATCH 1',map:'',server:'',date:'',time:'',status:'upcoming',roomId:'',roomPass:''},
+  {id:2,name:'MATCH 2',map:'',server:'',date:'',time:'',status:'upcoming',roomId:'',roomPass:''},
+  {id:3,name:'MATCH 3',map:'',server:'',date:'',time:'',status:'upcoming',roomId:'',roomPass:''}
 ];
 var MAPS=['Erangel','Miramar','Sanhok','Vikendi','Livik','Karakin','Nusa','Deston'];
 var MAPI={Erangel:'🌿',Miramar:'🏜️',Sanhok:'🌴',Vikendi:'❄️',Livik:'🏔️',Karakin:'🪨',Nusa:'🌊',Deston:'🌆'};
@@ -908,6 +908,28 @@ var PTS=[10,8,6,5,4,3,2,1];
 var MO=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 var MOBN=['জান','ফেব','মার','এপ্র','মে','জুন','জুল','আগ','সেপ','অক্ট','নভ','ডিস'];
 var DY=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+async function loadMatchesFromFirebase(){
+  if(!window.db) return;
+  try{
+    const loadedMatches = [];
+    for(let i=1; i<=3; i++){
+      const docRef = doc(window.db, 'matches', 'match_' + i);
+      const docSnap = await getDoc(docRef);
+      if(docSnap.exists()){
+        const data = docSnap.data();
+        loadedMatches.push(data);
+      }
+    }
+    if(loadedMatches.length > 0){
+      matches = loadedMatches;
+      showToast('✅ Matches loaded from Firebase!');
+      renderSchedule(); // Update UI
+    }
+  } catch(error){
+    console.error('Error loading matches from Firebase:', error);
+  }
+}
 
 function loadDB(){
   var loaded=false;
@@ -944,6 +966,7 @@ function loadDB(){
     }catch(e2){}
   }
 }
+
 function saveDB(){
   var data={squads:squads,results:results,payments:payments,matches:matches,ts:Date.now()};
   var json=JSON.stringify(data);
@@ -1035,6 +1058,11 @@ document.addEventListener('touchstart',function(){var ac=getAC();if(ac&&ac.state
 document.addEventListener('click',function(){var ac=getAC();if(ac&&ac.state==='suspended')ac.resume();},{once:true,passive:true});
 
 loadDB();
+
+// Load matches from Firebase if not already loaded
+if(window.db){
+  loadMatchesFromFirebase();
+}
 
 // ════════════════════════════
 // HELPERS
@@ -1405,7 +1433,6 @@ function renderSchedule(){
     var mi=MAPI[m.map]||'🗺️';
     html+='<div class="'+cc+'"><div class="mcard-hdr"><span class="mc-num">'+(lang==='bn'?m.name.replace('MATCH ','ম্যাচ '):m.name)+'</span><span class="mc-sts '+sc+'">'+st+'</span></div><div class="mcard-body">';
     html+='<div class="mc-row"><div class="mc-icon">'+mi+'</div><div><div class="mc-lbl">'+(lang==='bn'?'ম্যাপ':'MAP')+'</div>'+(m.map?'<div class="mc-val">'+esc(m.map)+'</div>':'<div class="mc-empty">TBD — Admin will announce</div>')+'</div></div>';
-    html+='<div class="mc-row"><div class="mc-icon">⚔</div><div><div class="mc-lbl">'+(lang==='bn'?'প্রতিপক্ষ':'OPPONENT')+'</div>'+(m.opponent?'<div class="mc-val">'+esc(m.opponent)+'</div>':'<div class="mc-empty">TBD</div>')+'</div></div>';
     html+='<div class="mc-row"><div class="mc-icon">🌐</div><div><div class="mc-lbl">'+(lang==='bn'?'সার্ভার':'SERVER')+'</div>'+(m.server?'<div class="mc-val">'+esc(m.server)+'</div>':'<div class="mc-empty">TBD</div>')+'</div></div>';
     if(m.date)html+='<div class="mc-row"><div class="mc-icon">📅</div><div><div class="mc-lbl">'+(lang==='bn'?'তারিখ':'DATE')+'</div><div class="mc-val">'+fmtDate(m.date)+'</div></div></div>';
     if(m.time){
@@ -2012,7 +2039,6 @@ function renderAdminMatches(){
     html+='<div class="am-lbl">MAP</div><select class="am-sel" id="am_map_'+m.id+'"><option value="">-- Select Map --</option>';
     MAPS.forEach(function(mp){html+='<option value="'+mp+'"'+(m.map===mp?' selected':'')+'>'+MAPI[mp]+' '+mp+'</option>';});
     html+='</select>';
-    html+='<div class="am-lbl">OPPONENT</div><input class="am-inp" id="am_opp_'+m.id+'" type="text" placeholder="Opponent team..." value="'+esc(m.opponent||'')+'">';
     html+='<div class="am-g2"><div><div class="am-lbl">SERVER</div><select class="am-sel" id="am_srv_'+m.id+'"><option value="">--</option>';
     SERVERS.forEach(function(s){html+='<option value="'+s+'"'+(m.server===s?' selected':'')+'>'+s+'</option>';});
     html+='</select></div><div><div class="am-lbl">STATUS</div><select class="am-sel" id="am_sts_'+m.id+'">';
@@ -2031,14 +2057,37 @@ function renderAdminMatches(){
 function saveMatch(id){
   var m=matches.find(function(x){return x.id===id;});if(!m)return;
   m.map=document.getElementById('am_map_'+id)?document.getElementById('am_map_'+id).value:'';
-  m.opponent=document.getElementById('am_opp_'+id)?document.getElementById('am_opp_'+id).value.trim():'';
   m.server=document.getElementById('am_srv_'+id)?document.getElementById('am_srv_'+id).value:'';
   m.status=document.getElementById('am_sts_'+id)?document.getElementById('am_sts_'+id).value:'upcoming';
   m.date=document.getElementById('am_date_'+id)?document.getElementById('am_date_'+id).value:'';
   m.time=document.getElementById('am_time_'+id)?document.getElementById('am_time_'+id).value:'';
   m.roomId=document.getElementById('am_rid_'+id)?document.getElementById('am_rid_'+id).value.trim():'';
   m.roomPass=document.getElementById('am_rpass_'+id)?document.getElementById('am_rpass_'+id).value.trim():'';
-  saveDB();showToast('✅ '+m.name+' saved!');renderSchedule();
+  // Save to Firebase
+  if(window.db){
+    const docRef = doc(window.db, 'matches', 'match_' + id);
+    setDoc(docRef, {
+      id: m.id,
+      name: m.name,
+      map: m.map,
+      server: m.server,
+      status: m.status,
+      date: m.date,
+      time: m.time,
+      roomId: m.roomId,
+      roomPass: m.roomPass
+    }).then(() => {
+      showToast('✅ '+m.name+' saved to Firebase!');
+      renderSchedule();
+    }).catch((error) => {
+      console.error('Error saving to Firebase:', error);
+      showToast('❌ Failed to save to Firebase');
+    });
+  } else {
+    saveDB(); // Fallback to localStorage
+    showToast('✅ '+m.name+' saved!');
+    renderSchedule();
+  }
 }
 
 // ════════════════════════════
@@ -2151,9 +2200,9 @@ function executeReset(type){
   if(type==='all'){
     squads=[];results=[];payments={};
     matches=[
-      {id:1,name:'MATCH 1',map:'',opponent:'',server:'',date:'',time:'',status:'upcoming',roomId:'',roomPass:''},
-      {id:2,name:'MATCH 2',map:'',opponent:'',server:'',date:'',time:'',status:'upcoming',roomId:'',roomPass:''},
-      {id:3,name:'MATCH 3',map:'',opponent:'',server:'',date:'',time:'',status:'upcoming',roomId:'',roomPass:''}
+      {id:1,name:'MATCH 1',map:'',server:'',date:'',time:'',status:'upcoming',roomId:'',roomPass:''},
+      {id:2,name:'MATCH 2',map:'',server:'',date:'',time:'',status:'upcoming',roomId:'',roomPass:''},
+      {id:3,name:'MATCH 3',map:'',server:'',date:'',time:'',status:'upcoming',roomId:'',roomPass:''}
     ];
     // Clear ALL storage
     try{localStorage.clear();}catch(e){
@@ -2163,7 +2212,7 @@ function executeReset(type){
     var mn=parseInt(type[1]);
     results=results.filter(function(r){return r.matchNum!==mn;});
     var m=matches.find(function(x){return x.id===mn;});
-    if(m){m.map='';m.opponent='';m.server='';m.date='';m.time='';m.status='upcoming';}
+    if(m){m.map='';m.server='';m.date='';m.time='';m.status='upcoming';}
   } else if(type==='payments'){
     payments={};
   } else if(type==='squads'){
@@ -2249,7 +2298,7 @@ function spawnFire(container, count) {
 
 <script type="module">
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
-  import { getFirestore, collection, addDoc, getDocs, deleteDoc, query, where, doc } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
+  import { getFirestore, collection, addDoc, getDocs, deleteDoc, query, where, doc, setDoc } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
 
   const firebaseConfig = {
     apiKey: "AIzaSyC60iFp5MwS3qOoM6Q2QPTZvpFES_y0Ey",
@@ -2473,14 +2522,36 @@ function spawnFire(container, count) {
     await Promise.all(deletes);
   };
 
+  window.deleteAllMatches = async function() {
+    const deletes = [];
+    for(let i=1; i<=3; i++){
+      deletes.push(deleteDoc(doc(db, 'matches', 'match_' + i)));
+    }
+    await Promise.all(deletes);
+  };
+
   window.performFirebaseReset = async function(type) {
     if (type === 'all') {
       await window.deleteAllResults();
       await window.deleteAllPayments();
       await window.deleteAllSquads();
+      await window.deleteAllMatches();
     } else if (type === 'm1' || type === 'm2' || type === 'm3') {
       var mn = parseInt(type[1]);
       await window.deleteResultsForMatch(mn);
+      // Reset the match data in Firebase
+      const docRef = doc(db, 'matches', 'match_' + mn);
+      await setDoc(docRef, {
+        id: mn,
+        name: 'MATCH ' + mn,
+        map: '',
+        server: '',
+        status: 'upcoming',
+        date: '',
+        time: '',
+        roomId: '',
+        roomPass: ''
+      });
     } else if (type === 'payments') {
       await window.deleteAllPayments();
     } else if (type === 'squads') {
@@ -2489,6 +2560,9 @@ function spawnFire(container, count) {
       await window.deleteAllSquads();
     }
   };
+
+  // Load matches from Firebase after init
+  if(window.loadMatchesFromFirebase) window.loadMatchesFromFirebase();
 </script>
 </body>
 </html>
