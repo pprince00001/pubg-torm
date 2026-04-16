@@ -1191,7 +1191,7 @@ var lp=0,li=setInterval(function(){
     clearInterval(li);
     setTimeout(function(){
       document.getElementById('LS').classList.add('out');
-      setTimeout(function(){document.getElementById('LS').style.display='none';document.getElementById('EO').classList.add('show');},700);
+      setTimeout(function(){document.getElementById('LS').style.display='none';enterSite();},700);
     },300);
   }
 },85);
