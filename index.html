@@ -910,20 +910,25 @@ var MOBN=['জান','ফেব','মার','এপ্র','মে','জুন
 var DY=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 async function loadMatchesFromFirebase(){
-  if(!window.db) return;
+  if(!window.firebaseLoaded || !window.db || !window.firebaseUtils) return;
   try{
     const loadedMatches = [];
     for(let i=1; i<=3; i++){
-      const docRef = doc(window.db, 'matches', 'match_' + i);
-      const docSnap = await getDoc(docRef);
+      const docRef = window.firebaseUtils.doc(window.db, 'matches', 'match_' + i);
+      const docSnap = await window.firebaseUtils.getDoc(docRef);
       if(docSnap.exists()){
         const data = docSnap.data();
         loadedMatches.push(data);
       }
     }
+    // Update existing matches with Firebase data
     if(loadedMatches.length > 0){
-      matches = loadedMatches;
-      showToast('✅ Matches loaded from Firebase!');
+      loadedMatches.forEach(function(firebaseMatch){
+        const existingMatch = matches.find(function(m){return m.id === firebaseMatch.id;});
+        if(existingMatch){
+          Object.assign(existingMatch, firebaseMatch);
+        }
+      });
       renderSchedule(); // Update UI
     }
   } catch(error){
@@ -1060,7 +1065,7 @@ document.addEventListener('click',function(){var ac=getAC();if(ac&&ac.state==='s
 loadDB();
 
 // Load matches from Firebase if not already loaded
-if(window.db){
+if(window.firebaseLoaded && window.db){
   loadMatchesFromFirebase();
 }
 
@@ -1424,6 +1429,20 @@ function renderRules(){
 // ════════════════════════════
 var cdInt=null;
 function renderSchedule(){
+  // Try to load latest matches from Firebase
+  if(window.firebaseLoaded && window.loadMatchesFromFirebase && !window._scheduleLoading) {
+    window._scheduleLoading = true;
+    loadMatchesFromFirebase().finally(() => {
+      window._scheduleLoading = false;
+      // Continue rendering after Firebase load attempt
+      renderScheduleInternal();
+    });
+    return; // Don't render yet, wait for Firebase
+  }
+  renderScheduleInternal();
+}
+
+function renderScheduleInternal(){
   var wrap=document.getElementById('matchCards');if(!wrap)return;
   var html='';
   matches.forEach(function(m){
@@ -2063,10 +2082,10 @@ function saveMatch(id){
   m.time=document.getElementById('am_time_'+id)?document.getElementById('am_time_'+id).value:'';
   m.roomId=document.getElementById('am_rid_'+id)?document.getElementById('am_rid_'+id).value.trim():'';
   m.roomPass=document.getElementById('am_rpass_'+id)?document.getElementById('am_rpass_'+id).value.trim():'';
-  // Save to Firebase
-  if(window.db){
-    const docRef = doc(window.db, 'matches', 'match_' + id);
-    setDoc(docRef, {
+  // Try to save to Firebase if available
+  if(window.firebaseLoaded && window.db && window.firebaseUtils){
+    const docRef = window.firebaseUtils.doc(window.db, 'matches', 'match_' + id);
+    window.firebaseUtils.setDoc(docRef, {
       id: m.id,
       name: m.name,
       map: m.map,
@@ -2084,9 +2103,31 @@ function saveMatch(id){
       showToast('❌ Failed to save to Firebase');
     });
   } else {
+    // Firebase not ready yet, save locally and retry Firebase save
     saveDB(); // Fallback to localStorage
-    showToast('✅ '+m.name+' saved!');
+    showToast('✅ '+m.name+' saved locally! Syncing to cloud...');
     renderSchedule();
+    // Retry Firebase save after a delay
+    setTimeout(function(){
+      if(window.firebaseLoaded && window.db && window.firebaseUtils){
+        const docRef = window.firebaseUtils.doc(window.db, 'matches', 'match_' + id);
+        window.firebaseUtils.setDoc(docRef, {
+          id: m.id,
+          name: m.name,
+          map: m.map,
+          server: m.server,
+          status: m.status,
+          date: m.date,
+          time: m.time,
+          roomId: m.roomId,
+          roomPass: m.roomPass
+        }).then(() => {
+          showToast('✅ Synced to cloud!');
+        }).catch((error) => {
+          console.error('Error syncing to Firebase:', error);
+        });
+      }
+    }, 2000);
   }
 }
 
@@ -2298,7 +2339,9 @@ function spawnFire(container, count) {
 
 <script type="module">
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
-  import { getFirestore, collection, addDoc, getDocs, deleteDoc, query, where, doc, setDoc } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
+  import { getFirestore, collection, addDoc, getDocs, deleteDoc, query, where, doc, setDoc, getDoc } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js';
+
+  console.log('Firebase module loading...');
 
   const firebaseConfig = {
     apiKey: "AIzaSyC60iFp5MwS3qOoM6Q2QPTZvpFES_y0Ey",
@@ -2312,6 +2355,16 @@ function spawnFire(container, count) {
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
+
+  window.db = db;
+  window.firebaseUtils = {
+    doc: doc,
+    setDoc: setDoc,
+    getDoc: getDoc
+  };
+  window.firebaseLoaded = true;
+
+  console.log('Firebase loaded successfully');
 
   window.registerSquadFirestore = async function(squad) {
     const docRef = await addDoc(collection(db, 'registrations'), {
